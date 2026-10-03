@@ -1,0 +1,9 @@
+# Local SOV task artifacts and worktrees (when SOV is implemented)
+.sov/
+
+# Local environment and editor state
+.env
+.env.*
+!.env.example
+.DS_Store
+*.swp
