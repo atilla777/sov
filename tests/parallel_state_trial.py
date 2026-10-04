@@ -107,7 +107,7 @@ def race(binary, state, a, b, mode):
 
 def main(binary):
     code, version = cli(binary, "--version")
-    assert code == 0 and version["message"] == "sov-state 0.1.0 (protocol v:1)"
+    assert code == 0 and version["message"] == "sov-state 0.2.0 (protocol v:1)"
     with tempfile.TemporaryDirectory(prefix="sov-parallel-") as tmp:
         root = Path(tmp)
         project, a, b = (root / p for p in ("project", "work-a", "work-b"))
@@ -121,6 +121,8 @@ def main(binary):
         state = project / ".sov"
         state.mkdir()
         (state / ".roadmap.lock").touch(mode=0o600)
+        (state / "ARCHIVE.md").write_text("| ID | Название | Статус | Исполнитель | Зависит от | Публикация |\n"
+                                          "| --- | --- | --- | --- | --- | --- |\n")
         road = state / "ROADMAP.md"
         initial = ("Следующий ID: `TASK-003`\n"
                    "| ID | Название | Статус | Исполнитель | Зависит от | Публикация |\n"
@@ -179,6 +181,70 @@ def main(binary):
         code, error = cli(binary, "read", "--state-dir", absent)
         assert code == 13 and error["code"] == "io_error"
         print("PASS: stale revision and missing state fail closed")
+
+        # A terminal task referenced by an active row remains in the queue.
+        arch = state / "ARCHIVE.md"
+        original_archive = arch.read_text()
+        dependent = ("Следующий ID: `TASK-004`\n"
+                     "| ID | Название | Статус | Исполнитель | Зависит от | Публикация |\n"
+                     "| --- | --- | --- | --- | --- | --- |\n"
+                     "| TASK-001 | One | done | alpha | — | no |\n"
+                     "| TASK-002 | Two | planned | — | TASK-001 | no |\n"
+                     "| TASK-003 | Three | cancelled | — | — | no |\n")
+        road.write_text(dependent)  # fixture reset with writers stopped
+        assert "TASK-001 | One | done" in snapshot(binary, state, a)[0]
+        short = dependent.replace("| TASK-003 | Three | cancelled | — | — | no |\n", "")
+        next_archive = original_archive + "| TASK-003 | Three | cancelled | — | — | no |\n"
+        road_input, archive_input = a / "short.md", a / "archived.md"
+        road_input.write_text(short)
+        archive_input.write_text(next_archive)
+        code, result = subprocess_archive(binary, state, a, road_input, archive_input,
+                                          snapshot(binary, state, a)[1], archive_revision(binary, state, a))
+        assert code == 0 and result["changed"]
+        assert "TASK-001 | One | done" in snapshot(binary, state, b)[0]
+        assert "TASK-003 | Three | cancelled" in arch.read_text()
+        print("PASS: terminal task with dependents stays queued; independent cancelled task archived")
+
+        # Remove the reference, then the now-free done row can move.
+        unlinked = short.replace("| TASK-002 | Two | planned | — | TASK-001 | no |",
+                                 "| TASK-002 | Two | planned | — | — | no |")
+        code, _ = commit(binary, state, b, snapshot(binary, state, b)[1], unlinked, "unlink.md")
+        assert code == 0
+        road_input.write_text(unlinked.replace("| TASK-001 | One | done | alpha | — | no |\n", ""))
+        archive_input.write_text(arch.read_text() + "| TASK-001 | One | done | alpha | — | no |\n")
+        code, _ = subprocess_archive(binary, state, a, road_input, archive_input,
+                                     snapshot(binary, state, a)[1], archive_revision(binary, state, a))
+        assert code == 0
+        remaining, rev = snapshot(binary, state, b)
+        assert "TASK-001 |" not in remaining and "TASK-002 | Two | planned" in remaining
+        assert "Следующий ID: `TASK-004`" in remaining
+        code, _ = commit(binary, state, b, rev, remaining.replace("TASK-004`", "TASK-005`") +
+                         "| TASK-004 | New | planned | — | — | no |\n", "after-archive.md")
+        assert code == 0 and "TASK-004 | New" in snapshot(binary, state, b)[0]
+        print("PASS: released done row archived; next ID retained and not reused")
+
+
+def archive_revision(binary, state, cwd):
+    code, result = subprocess_archive_read(binary, state, cwd)
+    assert code == 0, result
+    return result["revision"]
+
+
+def subprocess_archive_read(binary, state, cwd):
+    result = subprocess.run([binary, "read-archive", "--state-dir", str(state)],
+                            cwd=cwd, capture_output=True, text=True)
+    payload = json.loads(result.stdout)
+    assert payload["resource"] == "ARCHIVE.md", payload
+    return result.returncode, payload
+
+
+def subprocess_archive(binary, state, cwd, road_input, archive_input, road_rev, arch_rev):
+    result = subprocess.run([binary, "archive", "--state-dir", str(state), "--expected", road_rev,
+                             "--input", str(road_input), "--archive-expected", arch_rev,
+                             "--archive-input", str(archive_input)],
+                            cwd=cwd, capture_output=True, text=True)
+    payload = json.loads(result.stdout)
+    return result.returncode, payload
 
 
 if __name__ == "__main__":

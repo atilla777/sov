@@ -26,6 +26,9 @@ func fixture(t *testing.T) (string, string) {
 	if err := os.WriteFile(filepath.Join(dir, "ROADMAP.md"), []byte("old\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "ARCHIVE.md"), []byte("archive\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, ".roadmap.lock"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +83,170 @@ func TestReadCommitAndValidation(t *testing.T) {
 		if r, code := call(t, tc...); code != 12 {
 			t.Fatalf("%v: %+v %d", tc, r, code)
 		}
+	}
+}
+
+func TestArchiveTransferAndRecovery(t *testing.T) {
+	dir, input := fixture(t)
+	archiveInput := filepath.Join(filepath.Dir(input), "archive-next.md")
+	if err := os.WriteFile(archiveInput, []byte("archive\nold\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	archiveRead, code := call(t, "read-archive", "--state-dir", dir)
+	if code != 0 || archiveRead.Resource != "ARCHIVE.md" || archiveRead.Revision != revision([]byte("archive\n")) {
+		t.Fatalf("archive read: %+v %d", archiveRead, code)
+	}
+	args := []string{"archive", "--state-dir", dir, "--expected", revision([]byte("old\n")), "--input", input,
+		"--archive-expected", archiveRead.Revision, "--archive-input", archiveInput}
+	result, code := call(t, args...)
+	if code != 0 || result.Revision != revision([]byte("new\n")) || result.ArchiveRevision != revision([]byte("archive\nold\n")) {
+		t.Fatalf("archive: %+v %d", result, code)
+	}
+	archiveInfo, err := os.Stat(filepath.Join(dir, "ARCHIVE.md"))
+	if err != nil || archiveInfo.Mode().Perm() != 0600 {
+		t.Fatalf("archive permissions: %v %v", archiveInfo, err)
+	}
+	if r, code := call(t, "archive", "--state-dir", dir, "--expected", result.Revision, "--input", input,
+		"--archive-expected", archiveRead.Revision, "--archive-input", archiveInput); code != 10 || r.Resource != "ARCHIVE.md" || r.CurrentRevision != result.ArchiveRevision {
+		t.Fatalf("stale archive: %+v %d", r, code)
+	}
+	if _, code := call(t, args...); code != 10 {
+		t.Fatal("stale roadmap revision accepted")
+	}
+	if _, code := call(t, "commit", "--state-dir", dir, "--expected", result.Revision, "--input", archiveInput); code != 0 {
+		t.Fatal("ordinary commit failed")
+	}
+	// A changed roadmap cannot silently allow an archive built from a stale snapshot.
+	if _, code := call(t, "archive", "--state-dir", dir, "--expected", result.Revision, "--input", input,
+		"--archive-expected", result.ArchiveRevision, "--archive-input", archiveInput); code != 10 {
+		t.Fatal("stale transfer accepted")
+	}
+}
+
+func TestArchiveInterruptedBetweenPublications(t *testing.T) {
+	dir, input := fixture(t)
+	archiveInput := filepath.Join(filepath.Dir(input), "archive-next.md")
+	if err := os.WriteFile(archiveInput, []byte("archive\nold\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"archive", "--state-dir", dir, "--expected", revision([]byte("old\n")), "--input", input,
+		"--archive-expected", revision([]byte("archive\n")), "--archive-input", archiveInput}
+	count := 0
+	publishHook = func(stage string) error {
+		if stage == "before_rename" {
+			count++
+			if count == 2 {
+				return errors.New("roadmap publication interrupted")
+			}
+		}
+		return nil
+	}
+	r, code := call(t, args...)
+	publishHook = nil
+	if code != 13 || !r.MayHaveCommitted {
+		t.Fatalf("interrupted transfer: %+v %d", r, code)
+	}
+	a, ac := call(t, "read-archive", "--state-dir", dir)
+	m, mc := call(t, "read", "--state-dir", dir)
+	if ac != 0 || mc != 0 || a.Revision != revision([]byte("archive\nold\n")) || m.Revision != revision([]byte("old\n")) {
+		t.Fatalf("both copies retained: %+v %+v", a, m)
+	}
+	args[8] = a.Revision // archive-expected; already published archive is a no-op on retry
+	if r, code := call(t, args...); code != 0 || r.Revision != revision([]byte("new\n")) {
+		t.Fatalf("recovery: %+v %d", r, code)
+	}
+}
+
+func TestArchiveUncertainFirstPublication(t *testing.T) {
+	dir, input := fixture(t)
+	archiveInput := filepath.Join(filepath.Dir(input), "archive-next.md")
+	if err := os.WriteFile(archiveInput, []byte("archive\nold\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	publishHook = func(stage string) error {
+		if stage == "after_rename" {
+			return errors.New("archive sync interrupted")
+		}
+		return nil
+	}
+	r, code := call(t, "archive", "--state-dir", dir, "--expected", revision([]byte("old\n")), "--input", input,
+		"--archive-expected", revision([]byte("archive\n")), "--archive-input", archiveInput)
+	publishHook = nil
+	if code != 13 || !r.MayHaveCommitted || r.Resource != "ARCHIVE.md" {
+		t.Fatalf("uncertain archive: %+v %d", r, code)
+	}
+	if a, _ := call(t, "read-archive", "--state-dir", dir); a.Revision != revision([]byte("archive\nold\n")) {
+		t.Fatal("archived row lost")
+	}
+	if m, _ := call(t, "read", "--state-dir", dir); m.Revision != revision([]byte("old\n")) {
+		t.Fatal("roadmap changed prematurely")
+	}
+}
+
+func TestArchiveInputGuards(t *testing.T) {
+	dir, input := fixture(t)
+	base := []string{"archive", "--state-dir", dir, "--expected", revision([]byte("old\n")), "--input", input,
+		"--archive-expected", revision([]byte("archive\n")), "--archive-input"}
+	for _, file := range []string{filepath.Join(dir, "ARCHIVE.md"), input} {
+		if r, code := call(t, append(base, file)...); code != 12 {
+			t.Fatalf("alias %s: %+v %d", file, r, code)
+		}
+	}
+	alias := filepath.Join(filepath.Dir(input), "archive-input-alias.md")
+	if err := os.Link(input, alias); err != nil {
+		t.Fatal(err)
+	}
+	if r, code := call(t, append(base, alias)...); code != 12 {
+		t.Fatalf("hardlinked inputs: %+v %d", r, code)
+	}
+	if err := os.Remove(filepath.Join(dir, "ARCHIVE.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := call(t, "read-archive", "--state-dir", dir); code != 13 {
+		t.Fatal("missing archive treated as empty")
+	}
+}
+
+func TestConcurrentArchiveTransfers(t *testing.T) {
+	bin := binary(t)
+	dir, input := fixture(t)
+	other := filepath.Join(filepath.Dir(input), "other-roadmap.md")
+	if err := os.WriteFile(other, []byte("other\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"first-archive.md", "second-archive.md"}
+	results := make([]int, 2)
+	var wg sync.WaitGroup
+	for i, name := range files {
+		archiveInput := filepath.Join(filepath.Dir(input), name)
+		if err := os.WriteFile(archiveInput, []byte("archive\n"+name+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			roadmap := input
+			if i == 1 {
+				roadmap = other
+			}
+			_, code, err := process(bin, "archive", "--state-dir", dir, "--expected", revision([]byte("old\n")), "--input", roadmap,
+				"--archive-expected", revision([]byte("archive\n")), "--archive-input", archiveInput)
+			if err != nil {
+				results[i] = -1
+			} else {
+				results[i] = code
+			}
+		}(i)
+	}
+	wg.Wait()
+	if !((results[0] == 0 && results[1] == 10) || (results[0] == 10 && results[1] == 0)) {
+		t.Fatalf("concurrent results: %v", results)
+	}
+	read, rc := call(t, "read", "--state-dir", dir)
+	archived, ac := call(t, "read-archive", "--state-dir", dir)
+	if rc != 0 || ac != 0 || (read.Revision != revision([]byte("new\n")) && read.Revision != revision([]byte("other\n"))) ||
+		(archived.Revision != revision([]byte("archive\nfirst-archive.md\n")) && archived.Revision != revision([]byte("archive\nsecond-archive.md\n"))) {
+		t.Fatalf("inconsistent pair: %+v %+v", read, archived)
 	}
 }
 

@@ -1,4 +1,4 @@
-// sov-state provides byte-level conditional publication of an existing ROADMAP.md.
+// sov-state provides byte-level conditional publication of task state files.
 // Linux local filesystems only; every writer must use the same persistent mutex.
 package main
 
@@ -21,7 +21,7 @@ import (
 )
 
 const limit = 16 << 20
-const version = "0.1.0"
+const version = "0.2.0"
 
 // Test-only seam; never exposed through CLI flags or environment variables.
 var publishHook func(stage string) error
@@ -32,6 +32,7 @@ type response struct {
 	Resource         string  `json:"resource"`
 	Content          *string `json:"content_base64,omitempty"`
 	Revision         string  `json:"revision,omitempty"`
+	ArchiveRevision  string  `json:"archive_revision,omitempty"`
 	Changed          *bool   `json:"changed,omitempty"`
 	Code             string  `json:"code,omitempty"`
 	CurrentRevision  string  `json:"current_revision,omitempty"`
@@ -101,8 +102,8 @@ func openRegular(path string) (*os.File, os.FileInfo, error) {
 	return f, info, nil
 }
 
-func readTarget(dir string) ([]byte, os.FileInfo, error) {
-	f, info, err := openRegular(filepath.Join(dir, "ROADMAP.md"))
+func readTarget(dir, name string) ([]byte, os.FileInfo, error) {
+	f, info, err := openRegular(filepath.Join(dir, name))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -111,7 +112,7 @@ func readTarget(dir string) ([]byte, os.FileInfo, error) {
 		err = closeErr
 	}
 	if err == nil && len(data) > limit {
-		err = errors.New("ROADMAP.md exceeds 16 MiB")
+		err = fmt.Errorf("%s exceeds 16 MiB", name)
 	}
 	return data, info, err
 }
@@ -132,7 +133,7 @@ func readInput(path, dir string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fail("invalid_input", errors.New("input must be a regular file"))
 	}
-	for _, name := range []string{"ROADMAP.md", ".roadmap.lock"} {
+	for _, name := range []string{"ROADMAP.md", "ARCHIVE.md", ".roadmap.lock"} {
 		other, err := os.Stat(filepath.Join(dir, name))
 		if err == nil && os.SameFile(info, other) {
 			return nil, fail("invalid_input", errors.New("input aliases state file"))
@@ -187,8 +188,8 @@ func lock(dir string, timeout time.Duration) (*os.File, error) {
 	return f, nil
 }
 
-func publish(dir string, data []byte, mode os.FileMode) error {
-	f, err := os.CreateTemp(dir, ".ROADMAP.tmp-")
+func publish(dir, name string, data []byte, mode os.FileMode) error {
+	f, err := os.CreateTemp(dir, "."+name+".tmp-")
 	if err != nil {
 		return fail("io_error", err)
 	}
@@ -211,7 +212,7 @@ func publish(dir string, data []byte, mode os.FileMode) error {
 			return fail("io_error", err)
 		}
 	}
-	if err = os.Rename(f.Name(), filepath.Join(dir, "ROADMAP.md")); err != nil {
+	if err = os.Rename(f.Name(), filepath.Join(dir, name)); err != nil {
 		return fail("io_error", err)
 	}
 	if publishHook != nil {
@@ -239,18 +240,22 @@ func run(args []string) (response, int) {
 		r.Message = "sov-state " + version + " (protocol v:1)"
 		return r, 0
 	}
-	if len(args) == 0 || (args[0] != "read" && args[0] != "commit") {
-		return errorResponse(fail("invalid_input", errors.New("expected read or commit")))
+	if len(args) == 0 || (args[0] != "read" && args[0] != "read-archive" && args[0] != "commit" && args[0] != "archive") {
+		return errorResponse(fail("invalid_input", errors.New("expected read, read-archive, commit or archive")))
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dirArg := fs.String("state-dir", "", "existing state directory")
-	var expected, input, timeout string
-	if command == "commit" {
+	var expected, input, timeout, archiveExpected, archiveInput string
+	if command == "commit" || command == "archive" {
 		fs.StringVar(&expected, "expected", "", "expected revision")
 		fs.StringVar(&input, "input", "", "replacement file")
 		fs.StringVar(&timeout, "lock-timeout", "5s", "mutex wait")
+		if command == "archive" {
+			fs.StringVar(&archiveExpected, "archive-expected", "", "expected archive revision")
+			fs.StringVar(&archiveInput, "archive-input", "", "replacement archive file")
+		}
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return errorResponse(fail("invalid_input", err))
@@ -258,8 +263,9 @@ func run(args []string) (response, int) {
 	if fs.NArg() != 0 {
 		return errorResponse(fail("invalid_input", errors.New("unexpected argument")))
 	}
-	if command == "commit" {
-		if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(expected) {
+	if command == "commit" || command == "archive" {
+		validRevision := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+		if !validRevision.MatchString(expected) || (command == "archive" && !validRevision.MatchString(archiveExpected)) {
 			return errorResponse(fail("invalid_input", errors.New("invalid revision")))
 		}
 	}
@@ -267,10 +273,15 @@ func run(args []string) (response, int) {
 	if err != nil {
 		return errorResponse(err)
 	}
-	if command == "read" {
-		data, _, err := readTarget(dir)
+	if command == "read" || command == "read-archive" {
+		name := "ROADMAP.md"
+		if command == "read-archive" {
+			name = "ARCHIVE.md"
+		}
+		r.Resource = name
+		data, _, err := readTarget(dir, name)
 		if err != nil {
-			return errorResponse(fail("io_error", err))
+			return errorResponseFor(fail("io_error", err), name)
 		}
 		content := base64.StdEncoding.EncodeToString(data)
 		r.Content = &content
@@ -288,25 +299,69 @@ func run(args []string) (response, int) {
 	if err != nil {
 		return errorResponse(err)
 	}
+	var archiveData []byte
+	if command == "archive" {
+		if archiveInput == "" || archiveInput == input {
+			return errorResponse(fail("invalid_input", errors.New("distinct --archive-input required")))
+		}
+		first, firstErr := os.Stat(input)
+		second, secondErr := os.Stat(archiveInput)
+		if firstErr != nil || secondErr != nil {
+			return errorResponse(fail("invalid_input", errors.New("unable to stat archive inputs")))
+		}
+		if os.SameFile(first, second) {
+			return errorResponse(fail("invalid_input", errors.New("archive inputs alias each other")))
+		}
+		archiveData, err = readInput(archiveInput, dir)
+		if err != nil {
+			return errorResponse(err)
+		}
+	}
 	mutex, err := lock(dir, wait)
 	if err != nil {
 		return errorResponse(err)
 	}
 	defer mutex.Close()
-	current, info, err := readTarget(dir)
+	current, info, err := readTarget(dir, "ROADMAP.md")
 	if err != nil {
 		return errorResponse(fail("io_error", err))
 	}
 	if rev := revision(current); expected != rev {
 		return errorResponse(&failure{code: "revision_conflict", message: "revision changed", current: rev})
 	}
-	changed := !bytes.Equal(current, data)
+	archiveChanged := false
+	if command == "archive" {
+		archived, archiveInfo, err := readTarget(dir, "ARCHIVE.md")
+		if err != nil {
+			return errorResponseFor(fail("io_error", err), "ARCHIVE.md")
+		}
+		if rev := revision(archived); archiveExpected != rev {
+			return errorResponseFor(&failure{code: "revision_conflict", message: "archive revision changed", current: rev}, "ARCHIVE.md")
+		}
+		// Publish the archive first. A crash may leave the same row in both files,
+		// but must never leave the row absent from both. A retry can use the
+		// already-published archive bytes and finish shortening the roadmap.
+		archiveChanged = !bytes.Equal(archived, archiveData)
+		if archiveChanged {
+			if err = publish(dir, "ARCHIVE.md", archiveData, archiveInfo.Mode()); err != nil {
+				return errorResponseFor(err, "ARCHIVE.md")
+			}
+		}
+		r.ArchiveRevision = revision(archiveData)
+	}
+	changed := archiveChanged || !bytes.Equal(current, data)
 	r.Changed = &changed
-	if !changed {
+	if bytes.Equal(current, data) {
 		r.Revision = expected
 		return r, 0
 	}
-	if err = publish(dir, data, info.Mode()); err != nil {
+	if err = publish(dir, "ROADMAP.md", data, info.Mode()); err != nil {
+		if command == "archive" {
+			f, code := errorResponse(err)
+			f.MayHaveCommitted = true // archive may already have been published
+			f.ArchiveRevision = r.ArchiveRevision
+			return f, code
+		}
 		return errorResponse(err)
 	}
 	r.Revision = revision(data)
@@ -314,12 +369,16 @@ func run(args []string) (response, int) {
 }
 
 func errorResponse(err error) (response, int) {
+	return errorResponseFor(err, "ROADMAP.md")
+}
+
+func errorResponseFor(err error, name string) (response, int) {
 	var f *failure
 	if !errors.As(err, &f) {
 		f = fail("io_error", err)
 	}
 	codes := map[string]int{"revision_conflict": 10, "lock_timeout": 11, "invalid_input": 12, "io_error": 13}
-	return response{V: 1, Status: "error", Resource: "ROADMAP.md", Code: f.code, Message: f.message, CurrentRevision: f.current, MayHaveCommitted: f.maybe}, codes[f.code]
+	return response{V: 1, Status: "error", Resource: name, Code: f.code, Message: f.message, CurrentRevision: f.current, MayHaveCommitted: f.maybe}, codes[f.code]
 }
 
 func main() {
