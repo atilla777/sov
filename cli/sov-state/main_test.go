@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -43,6 +44,21 @@ func call(t *testing.T, args ...string) (response, int) {
 	t.Helper()
 	r, code := run(args)
 	return r, code
+}
+
+func TestSessionID(t *testing.T) {
+	format := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	seen := make(map[string]bool)
+	for range 256 {
+		r, code := call(t, "session-id")
+		if code != 0 || r.V != 1 || r.Status != "ok" || r.Resource != "SESSION" || !format.MatchString(r.SessionID) || seen[r.SessionID] {
+			t.Fatalf("invalid or repeated session ID: %+v %d", r, code)
+		}
+		seen[r.SessionID] = true
+	}
+	if r, code := call(t, "session-id", "--state-dir", "/tmp"); code != 12 || r.Code != "invalid_input" {
+		t.Fatalf("unexpected session-id arguments accepted: %+v %d", r, code)
+	}
 }
 
 func TestReadCommitAndValidation(t *testing.T) {

@@ -107,7 +107,7 @@ def race(binary, state, a, b, mode):
 
 def main(binary):
     code, version = cli(binary, "--version")
-    assert code == 0 and version["message"] == "sov-state 0.2.0 (protocol v:1)"
+    assert code == 0 and version["message"] == "sov-state 0.3.0 (protocol v:1)"
     with tempfile.TemporaryDirectory(prefix="sov-parallel-") as tmp:
         root = Path(tmp)
         project, a, b = (root / p for p in ("project", "work-a", "work-b"))

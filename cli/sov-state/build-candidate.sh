@@ -23,7 +23,7 @@ trap 'exit 1' HUP INT TERM
 (cd "$source" && go build -trimpath -o "$tmp" .)
 version=$("$tmp" --version)
 case "$version" in
-    *'"v":1'*'"message":"sov-state 0.2.0 (protocol v:1)"'*) ;;
+    *'"v":1'*'"message":"sov-state 0.3.0 (protocol v:1)"'*) ;;
     *) >&2 printf 'unexpected sov-state version: %s\n' "$version"; exit 1 ;;
 esac
 mv -- "$tmp" "$candidate"

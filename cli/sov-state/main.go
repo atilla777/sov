@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,7 +22,7 @@ import (
 )
 
 const limit = 16 << 20
-const version = "0.2.0"
+const version = "0.3.0"
 
 // Test-only seam; never exposed through CLI flags or environment variables.
 var publishHook func(stage string) error
@@ -33,6 +34,7 @@ type response struct {
 	Content          *string `json:"content_base64,omitempty"`
 	Revision         string  `json:"revision,omitempty"`
 	ArchiveRevision  string  `json:"archive_revision,omitempty"`
+	SessionID        string  `json:"session_id,omitempty"`
 	Changed          *bool   `json:"changed,omitempty"`
 	Code             string  `json:"code,omitempty"`
 	CurrentRevision  string  `json:"current_revision,omitempty"`
@@ -52,6 +54,16 @@ func fail(code string, err error) *failure { return &failure{code: code, message
 func revision(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func newSessionID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	id[6] = (id[6] & 0x0f) | 0x40
+	id[8] = (id[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:]), nil
 }
 
 func regularSingle(info os.FileInfo) bool {
@@ -240,8 +252,17 @@ func run(args []string) (response, int) {
 		r.Message = "sov-state " + version + " (protocol v:1)"
 		return r, 0
 	}
+	if len(args) == 1 && args[0] == "session-id" {
+		r.Resource = "SESSION"
+		id, err := newSessionID()
+		if err != nil {
+			return errorResponseFor(fail("io_error", err), "SESSION")
+		}
+		r.SessionID = id
+		return r, 0
+	}
 	if len(args) == 0 || (args[0] != "read" && args[0] != "read-archive" && args[0] != "commit" && args[0] != "archive") {
-		return errorResponse(fail("invalid_input", errors.New("expected read, read-archive, commit or archive")))
+		return errorResponse(fail("invalid_input", errors.New("expected session-id, read, read-archive, commit or archive")))
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
