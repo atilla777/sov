@@ -48,7 +48,7 @@ def main():
 
         def card(slug, deps=()):
             source = base / f'{slug}.yaml'
-            source.write_text('title: ' + slug + '\ndescription: Isolated probe\ndepends_on: [' + ', '.join(f'"{d}"' for d in deps) + ']\nacceptance_criteria: [Verified]\n', encoding='utf-8')
+            source.write_text('title: ' + slug + '\ntype: development\nexecutor: agent\ndescription: Isolated probe\ndepends_on: [' + ', '.join(f'"{d}"' for d in deps) + ']\nacceptance_criteria: [Verified]\n', encoding='utf-8')
             return cli('create', '--file', str(source), '--slug', slug)
 
         a = card('foundation')

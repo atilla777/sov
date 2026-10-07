@@ -175,7 +175,7 @@ func parse(data []byte) (map[string]any, error) {
 	return v.(map[string]any), nil
 }
 
-func checkCard(card map[string]any, name string) error {
+func checkCard(card map[string]any, name string, creating bool) error {
 	if !namePattern.MatchString(name) {
 		return fmt.Errorf("invalid task directory name: %s", name)
 	}
@@ -192,6 +192,24 @@ func checkCard(card map[string]any, name string) error {
 		v, ok := card[field].(string)
 		if !ok || strings.TrimSpace(v) == "" {
 			return fmt.Errorf("%s: %s must be a nonempty string", name, field)
+		}
+	}
+	taskType, hasType := card["type"]
+	executor, hasExecutor := card["executor"]
+	if hasType != hasExecutor || (creating && !hasType) {
+		return fmt.Errorf("%s: type and executor must both be present for new tasks or both absent for historical tasks", name)
+	}
+	if hasType {
+		t, ok := taskType.(string)
+		if !ok || (t != "development" && t != "non_development") {
+			return fmt.Errorf("%s: type must be development or non_development", name)
+		}
+		e, ok := executor.(string)
+		if !ok || (e != "agent" && e != "external") {
+			return fmt.Errorf("%s: executor must be agent or external", name)
+		}
+		if t == "development" && e == "external" {
+			return fmt.Errorf("%s: development + external is not allowed", name)
 		}
 	}
 	deps, ok := card["depends_on"].([]any)
@@ -243,7 +261,7 @@ func (s store) card(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := checkCard(card, filepath.Base(path)); err != nil {
+	if err := checkCard(card, filepath.Base(path), false); err != nil {
 		return nil, err
 	}
 	return card, nil
@@ -438,7 +456,7 @@ func (s store) create(file, slug string) (any, error) {
 			return nil, errors.New("slug must be lowercase ASCII words separated by hyphens")
 		}
 		name := id + "-" + slug
-		if err := checkCard(card, name); err != nil {
+		if err := checkCard(card, name, true); err != nil {
 			return nil, err
 		}
 		path := s.path("tasks", name)

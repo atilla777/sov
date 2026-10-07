@@ -69,7 +69,7 @@ def main():
 
         def card(slug, description, criteria, deps=()):
             path = root / f'{slug}.yaml'
-            path.write_text('title: ' + slug + '\ndescription: ' + json.dumps(description) + '\n'
+            path.write_text('title: ' + slug + '\ntype: development\nexecutor: agent\ndescription: ' + json.dumps(description) + '\n'
                             'depends_on: [' + ', '.join(f'"{id}"' for id in deps) + ']\n'
                             'acceptance_criteria: [' + json.dumps(criteria) + ']\n', encoding='utf-8')
             return cli('create', '--file', str(path), '--slug', slug)

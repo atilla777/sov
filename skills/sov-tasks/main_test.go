@@ -19,7 +19,7 @@ func fixture(t *testing.T) (string, string) {
 		}
 	}
 	file := filepath.Join(t.TempDir(), "card.yaml")
-	if err := os.WriteFile(file, []byte("title: Work\ndescription: Work\ndepends_on: []\nacceptance_criteria: [Done]\n"), 0600); err != nil {
+	if err := os.WriteFile(file, []byte("title: Work\ntype: development\nexecutor: agent\ndescription: Work\ndepends_on: []\nacceptance_criteria: [Done]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return root, file
@@ -115,11 +115,137 @@ func TestStrictYAML(t *testing.T) {
 	}
 }
 
+func TestClassificationForNewAndHistoricalCards(t *testing.T) {
+	root, file := fixture(t)
+	base := "title: Work\ndescription: Work\ndepends_on: []\nacceptance_criteria: [Done]\n"
+	for _, tc := range []struct {
+		name, fields string
+		valid        bool
+	}{
+		{"agent-development", "type: development\nexecutor: agent\n", true},
+		{"agent-research", "type: non_development\nexecutor: agent\n", true},
+		{"external-delivery", "type: non_development\nexecutor: external\n", true},
+		{"historical-new", "", false},
+		{"type-only", "type: development\n", false},
+		{"executor-only", "executor: agent\n", false},
+		{"wrong-type", "type: unknown\nexecutor: agent\n", false},
+		{"wrong-executor", "type: development\nexecutor: vendor\n", false},
+		{"non-string-type", "type: 42\nexecutor: agent\n", false},
+		{"non-string-executor", "type: development\nexecutor: true\n", false},
+		{"invalid-pair", "type: development\nexecutor: external\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(file, []byte(base+tc.fields), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := run([]string{"--state-dir", root, "create", "--file", file, "--slug", tc.name})
+			if (err == nil) != tc.valid {
+				t.Fatalf("create: %v, valid=%v", err, tc.valid)
+			}
+		})
+	}
+	// Old cards without both fields stay readable, including after archiving.
+	historical := filepath.Join(root, "tasks", "0004-legacy")
+	if err := os.Mkdir(historical, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(historical, "task.yaml"), []byte("id: \"0004\"\n"+base), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := call(t, root, "show", "0004")["task"].(map[string]any)["type"]; ok {
+		t.Fatal("historical type invented")
+	}
+	rows, err := run([]string{"--state-dir", root, "list"})
+	if err != nil || len(rows.([]map[string]any)) != 4 {
+		t.Fatal("historical list rejected", rows, err)
+	}
+	if call(t, root, "validate")["valid"] != true {
+		t.Fatal("historical card rejected")
+	}
+	if err := os.WriteFile(filepath.Join(historical, "task.yaml"), []byte("id: \"0004\"\n"+base+"executor: agent\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"list", "show"} {
+		args := []string{"--state-dir", root, command}
+		if command == "show" {
+			args = append(args, "0004")
+		}
+		if _, err := run(args); err == nil {
+			t.Fatalf("%s accepted invalid active card", command)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(historical, "task.yaml"), []byte("id: \"0004\"\n"+base), 0600); err != nil {
+		t.Fatal(err)
+	}
+	call(t, root, "claim", "0004")
+	call(t, root, "complete", "0004")
+	if _, ok := call(t, root, "show-completed", "0004")["task"].(map[string]any)["executor"]; ok {
+		t.Fatal("historical executor invented")
+	}
+	for _, fields := range []string{"type: development\n", "type: development\nexecutor: external\n", "type: 42\nexecutor: agent\n"} {
+		if err := os.WriteFile(filepath.Join(root, "archive", "0004-legacy", "task.yaml"), []byte("id: \"0004\"\n"+base+fields), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run([]string{"--state-dir", root, "show-completed", "0004"}); err == nil {
+			t.Fatalf("invalid archive card accepted: %s", fields)
+		}
+		if _, err := run([]string{"--state-dir", root, "list-completed"}); err == nil {
+			t.Fatalf("invalid archived list accepted: %s", fields)
+		}
+		if call(t, root, "validate")["valid"] != false {
+			t.Fatal("invalid archive card validated")
+		}
+	}
+}
+
+func TestExternalDeliveryAndDependentSelection(t *testing.T) {
+	root, file := fixture(t)
+	write := func(source string) {
+		t.Helper()
+		if err := os.WriteFile(file, []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := "title: Work\ndescription: Work\nacceptance_criteria: [Received]\n"
+	write(base + "type: non_development\nexecutor: external\ndepends_on: []\n")
+	ext := call(t, root, "create", "--file", file, "--slug", "assets")
+	write(base + "type: development\nexecutor: agent\ndepends_on: [\"0001\"]\n")
+	dep := call(t, root, "create", "--file", file, "--slug", "menu")
+	write(base + "type: non_development\nexecutor: agent\ndepends_on: []\n")
+	other := call(t, root, "create", "--file", file, "--slug", "research")
+	rows, err := run([]string{"--state-dir", root, "list-ready"})
+	if err != nil || len(rows.([]map[string]any)) != 2 || rows.([]map[string]any)[0]["id"] != ext["id"] || rows.([]map[string]any)[1]["id"] != other["id"] {
+		t.Fatal("unexpected ready tasks", rows, err)
+	}
+	// claim-next has no semantic filter: the agent must skip external delivery
+	// and claim the specific suitable ID, leaving the dependent blocked.
+	call(t, root, "claim", other["id"].(string))
+	if call(t, root, "show", ext["id"].(string))["state"] != "READY" || call(t, root, "show", dep["id"].(string))["state"] != "BLOCKED" {
+		t.Fatal("external task was prematurely completed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "completed", "0001")); !os.IsNotExist(err) {
+		t.Fatal("marker before confirmed delivery", err)
+	}
+	// Simulate the owner's confirmation and criterion check by the agent; the
+	// CLI is intentionally unaware of the human decision.
+	call(t, root, "claim", ext["id"].(string))
+	if err := os.WriteFile(filepath.Join(root, "tasks", ext["name"].(string), "task.md"), []byte("Owner confirmed receipt; criterion checked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	call(t, root, "complete", ext["id"].(string))
+	if call(t, root, "show", dep["id"].(string))["state"] != "READY" {
+		t.Fatal("dependent did not unblock")
+	}
+	if call(t, root, "validate")["valid"] != true {
+		t.Fatal("invalid state after external completion")
+	}
+}
+
 func TestDependenciesAndArchiveValidation(t *testing.T) {
 	root, file := fixture(t)
 	a := call(t, root, "create", "--file", file, "--slug", "first")
 	bfile := filepath.Join(t.TempDir(), "dependent.yaml")
-	os.WriteFile(bfile, []byte("title: Second\ndescription: Work\ndepends_on: [\"0001\"]\nacceptance_criteria: [Done]\n"), 0600)
+	os.WriteFile(bfile, []byte("title: Second\ntype: development\nexecutor: agent\ndescription: Work\ndepends_on: [\"0001\"]\nacceptance_criteria: [Done]\n"), 0600)
 	b := call(t, root, "create", "--file", bfile, "--slug", "second")
 	if call(t, root, "show", b["id"].(string))["state"] != "BLOCKED" {
 		t.Fatal("dependency")
