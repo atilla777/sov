@@ -150,6 +150,33 @@ class Store:
         card = self.card(path)
         return {"id": card["id"], "name": path.name, "state": self.state(path, card, markers), "task": card}
 
+    def completed_rows(self, id_=None):
+        if id_ is not None and not valid_id(id_):
+            raise TaskError("ID must be 0001–9999")
+        tasks = self.names("tasks")
+        archive = self.names("archive")
+        claims = self.names("claims")
+        markers = self.markers()
+        ids = sorted(set(archive) | markers) if id_ is None else [id_]
+        rows = []
+        for key in ids:
+            path = archive.get(key)
+            if key in tasks and path is not None:
+                raise TaskError(f"{key}: task and archive both present")
+            if key in tasks and key in markers:
+                raise TaskError(f"{key}: marker present, task not yet archived (incomplete completion)")
+            if path is None:
+                if key in markers:
+                    raise TaskError(f"{key}: marker without archive (incomplete completion)")
+                raise TaskError(f"completed task not found: {key}")
+            if key not in markers:
+                raise TaskError(f"{key}: archive without marker")
+            if key in claims:
+                raise TaskError(f"{key}: archive still has claim (incomplete completion)")
+            card = self.card(path)
+            rows.append({"id": key, "name": path.name, "state": "COMPLETED", "task": card})
+        return rows
+
     @contextlib.contextmanager
     def create_lock(self):
         lock = self.root / ".tasks.lock"
@@ -335,9 +362,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-dir", required=True, type=Path, help="absolute path to the shared .sov directory")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("list", "list-ready", "claim-next", "validate", "show", "claim", "release", "complete", "create"):
+    for name in ("list", "list-ready", "list-completed", "claim-next", "validate", "show", "show-completed", "claim", "release", "complete", "create"):
         sub = commands.add_parser(name)
-        if name in ("show", "claim", "release", "complete"):
+        if name in ("show", "show-completed", "claim", "release", "complete"):
             sub.add_argument("id")
         if name == "validate":
             sub.add_argument("id", nargs="?")
@@ -363,6 +390,10 @@ def main(argv=None):
                 result = [row for row in result if row["state"] == "READY"]
         elif cmd == "show":
             result = store.row(store.locate(args.id), store.markers())
+        elif cmd == "list-completed":
+            result = store.completed_rows()
+        elif cmd == "show-completed":
+            result = store.completed_rows(args.id)[0]
         elif cmd == "claim":
             result = store.claim(store.locate(args.id), args.owner) or {"status": "not_ready", "id": args.id}
         elif cmd == "claim-next":

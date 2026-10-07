@@ -109,6 +109,58 @@ class TaskTest(unittest.TestCase):
         self.run_cli("complete", item2["id"])
         self.assertTrue(self.run_cli("validate")["valid"])
 
+    def test_completed_read_empty_order_and_full_cards(self):
+        self.assertEqual(self.run_cli("list-completed"), [])
+        self.assertIn("not found", self.run_cli("show-completed", "0001", ok=False)["error"])
+        first = self.create("first")
+        second = self.create("second", [first["id"]])
+        self.run_cli("claim", first["id"])
+        self.run_cli("complete", first["id"])
+        self.run_cli("claim", second["id"])
+        self.run_cli("complete", second["id"])
+        rows = self.run_cli("list-completed")
+        self.assertEqual([row["id"] for row in rows], ["0001", "0002"])
+        self.assertEqual([row["state"] for row in rows], ["COMPLETED", "COMPLETED"])
+        self.assertEqual(rows[1]["task"]["depends_on"], ["0001"])
+        self.assertEqual(rows[1]["task"]["description"], "Work")
+        self.assertEqual(rows[1]["task"]["acceptance_criteria"], ["Done"])
+        self.assertEqual(self.run_cli("show-completed", "0002"), rows[1])
+        self.assertEqual(self.run_cli("list"), [])
+        self.assertIn("not found", self.run_cli("show", "0002", ok=False)["error"])
+
+    def test_completed_read_rejects_incomplete_and_invalid_archive(self):
+        item = self.create("first")
+        self.assertIn("not found", self.run_cli("show-completed", item["id"], ok=False)["error"])
+        self.run_cli("claim", item["id"])
+        marker = self.root / "completed" / item["id"]
+        marker.touch()
+        self.assertIn("incomplete completion", self.run_cli("list-completed", ok=False)["error"])
+        self.assertIn("incomplete completion", self.run_cli("show-completed", item["id"], ok=False)["error"])
+        (self.root / "tasks" / item["name"]).rename(self.root / "archive" / item["name"])
+        self.assertIn("claim", self.run_cli("list-completed", ok=False)["error"])
+        self.assertIn("claim", self.run_cli("show-completed", item["id"], ok=False)["error"])
+        self.run_cli("complete", item["id"])
+        marker.unlink()
+        self.assertIn("without marker", self.run_cli("list-completed", ok=False)["error"])
+        self.assertIn("without marker", self.run_cli("show-completed", item["id"], ok=False)["error"])
+        marker.touch()
+        card = self.root / "archive" / item["name"] / "task.yaml"
+        card.write_text('id: 1\ntitle: bad\n', encoding="utf-8")
+        self.assertIn("missing fields", self.run_cli("list-completed", ok=False)["error"])
+        self.assertIn("missing fields", self.run_cli("show-completed", item["id"], ok=False)["error"])
+
+    def test_completed_read_rejects_orphan_marker_and_duplicate_task(self):
+        (self.root / "completed" / "0004").touch()
+        self.assertIn("marker without archive", self.run_cli("list-completed", ok=False)["error"])
+        self.assertIn("marker without archive", self.run_cli("show-completed", "0004", ok=False)["error"])
+        (self.root / "completed" / "0004").unlink()
+        item = self.create("first")
+        self.run_cli("claim", item["id"])
+        self.run_cli("complete", item["id"])
+        (self.root / "tasks" / item["name"]).mkdir()
+        self.assertIn("both present", self.run_cli("list-completed", ok=False)["error"])
+        self.assertIn("both present", self.run_cli("show-completed", item["id"], ok=False)["error"])
+
     def test_bad_yaml_duplicate_id_and_intermediate_state(self):
         item = self.create("one", id_="9999")
         self.run_cli("create", "--file", self.write("duplicate.yaml", 'id: "9999"\ntitle: bad\ndescription: x\ndepends_on: []\nacceptance_criteria: [ok]\n'), "--slug", "bad", ok=False)
