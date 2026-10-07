@@ -7,7 +7,7 @@ import sys
 import tempfile
 
 
-CLI = Path(__file__).resolve().parents[1] / 'cli' / 'sov-task' / 'sov_task.py'
+SOURCE = Path(__file__).resolve().parents[1] / 'skills' / 'sov-tasks'
 
 
 def run(*args, cwd=None, code=0):
@@ -19,6 +19,8 @@ def run(*args, cwd=None, code=0):
 def main():
     with tempfile.TemporaryDirectory(prefix='sov-plan044-') as temporary:
         root = Path(temporary)
+        binary = root / 'sov-task'
+        run('go', 'build', '-o', str(binary), '.', cwd=SOURCE)
         project, remote = root / 'project', root / 'remote.git'
         project.mkdir()
         run('git', 'init', '--bare', '--initial-branch=main', str(remote))
@@ -41,7 +43,7 @@ def main():
         run('git', 'push', '-u', 'origin', 'main', cwd=project)
 
         def cli(*args):
-            return json.loads(run(sys.executable, str(CLI), '--state-dir', str(state), *args, cwd=project))
+            return json.loads(run(str(binary), '--state-dir', str(state), *args, cwd=project))
 
         # Decisions are fixture inputs, not answers obtained from a human in this run.
         decisions = ('Input: a missing label; question: reject or use a default? '

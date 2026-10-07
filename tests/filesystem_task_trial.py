@@ -5,11 +5,10 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
 
 
-CLI = Path(__file__).resolve().parents[1] / 'cli' / 'sov-task' / 'sov_task.py'
+SOURCE = Path(__file__).resolve().parents[1] / 'skills' / 'sov-tasks'
 
 
 def proc(*args, cwd=None, code=0):
@@ -21,6 +20,8 @@ def proc(*args, cwd=None, code=0):
 def main():
     with tempfile.TemporaryDirectory(prefix='sov-plan038-') as temporary:
         base = Path(temporary)
+        binary = base / 'sov-task'
+        proc('go', 'build', '-o', str(binary), '.', cwd=SOURCE)
         project, remote = base / 'project', base / 'remote.git'
         project.mkdir()
         proc('git', 'init', '--bare', '--initial-branch=main', str(remote))
@@ -31,14 +32,19 @@ def main():
         proc('git', 'add', '.gitignore', 'README.md', cwd=project)
         proc('git', '-c', 'user.name=Probe', '-c', 'user.email=probe@example.invalid', 'commit', '-m', 'init', cwd=project)
         proc('git', 'push', '-u', 'origin', 'main', cwd=project)
+        worktree = base / 'worktree'
+        proc('git', 'worktree', 'add', '--detach', str(worktree), 'HEAD', cwd=project)
         state = project / '.sov'
         for folder in ('tasks', 'claims', 'completed', 'archive'):
             (state / folder).mkdir(parents=True)
 
         def cli(*args, code=0):
-            p = subprocess.run([sys.executable, str(CLI), '--state-dir', str(state), *args], cwd=project, capture_output=True, text=True)
+            p = subprocess.run([str(binary), '--state-dir', str(state), *args], cwd=project, capture_output=True, text=True)
             assert p.returncode == code, (args, p.returncode, p.stdout, p.stderr)
             return json.loads(p.stdout or p.stderr)
+
+        probe = subprocess.run([str(binary), '--state-dir', str(state), 'list'], cwd=worktree, capture_output=True, text=True)
+        assert probe.returncode == 0 and json.loads(probe.stdout) == [], probe.stderr
 
         def card(slug, deps=()):
             source = base / f'{slug}.yaml'
@@ -46,6 +52,8 @@ def main():
             return cli('create', '--file', str(source), '--slug', slug)
 
         a = card('foundation')
+        probe = subprocess.run([str(binary), '--state-dir', str(state), 'show', a['id']], cwd=worktree, capture_output=True, text=True)
+        assert probe.returncode == 0 and json.loads(probe.stdout)['id'] == a['id'], probe.stderr
         b = card('dependent', [a['id']])
         c = card('independent')
         d = card('another-dependent', [a['id']])
