@@ -12,6 +12,7 @@ SOV — проект набора взаимосвязанных Agent Skills и
 - [Скил учёта задач `sov-tasks`](skills/sov-tasks/SKILL.md), [образец очереди](templates/ROADMAP.md) и [образец архива](templates/ARCHIVE.md).
 - [Исходники и сборка CLI `sov-state`](cli/sov-state/README.md) — протокол `v:1` для файлового `sov-tasks`; [результаты проверки](docs/parallel-state-results.md) и [процедура включения](docs/parallel-activation.md) параллельных координаторов.
 - [Read-only просмотр `sov-tasks-view`](cli/sov-tasks-view/README.md) — проверка обеих таблиц и структурированный поиск без записи; подключается отдельно.
+- [CLI файловых задач `sov-task`](cli/sov-task/README.md) — операции нового файлового протокола; подключение скилов и проектов выполняется отдельно.
 - [Скил Git и GitHub `sov-git`](skills/sov-git/SKILL.md).
 - [Скил оформления документов `sov-okf`](skills/sov-okf/SKILL.md).
 - [Скил подготовки требований `sov-spec`](skills/sov-spec/SKILL.md).
