@@ -19,12 +19,13 @@ SOV — проект набора взаимосвязанных Agent Skills и
 - [Скил оформления документов `sov-okf`](skills/sov-okf/SKILL.md).
 - [Скил подготовки требований `sov-spec`](skills/sov-spec/SKILL.md).
 - [Скил ревью требований `sov-review-spec`](skills/sov-review-spec/SKILL.md).
+- [Скил декомпозиции опубликованных требований `sov-decompose`](skills/sov-decompose/SKILL.md).
 - [Скил технического планирования `sov-plan`](skills/sov-plan/SKILL.md).
 - [Скил диагностики ошибок `sov-research`](skills/sov-research/SKILL.md).
 - [Скил реализации `sov-implement`](skills/sov-implement/SKILL.md).
 - [Скил ревью реализации `sov-review-implementation`](skills/sov-review-implementation/SKILL.md).
 - [Скил управления поручением `sov-orchestrator`](skills/sov-orchestrator/SKILL.md).
-- [Команды OpenCode `/sov`, `/sov-feature`, `/sov-bug`, `/sov-fast` и их подключение](.opencode/README.md).
+- [Команды OpenCode `/sov`, `/sov-feature`, `/sov-bug`, `/sov-fast`, `/sov-decompose` и их подключение](.opencode/README.md).
 - [MIT License](LICENSE).
 
 Планирование разработки ведётся в Obsidian: `/home/aleksei/Yandex.Disk/obsidian-vault/B - работа Plums Lab/SOV/SOV.md`. Перед созданием задач обсудим дорожную карту и критерии с пользователем. Записи Obsidian не входят в Git-репозиторий.
