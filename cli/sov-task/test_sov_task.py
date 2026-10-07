@@ -66,6 +66,31 @@ class TaskTest(unittest.TestCase):
         self.assertEqual({r["id"] for r in results}, {"0001", "0002"})
         self.assertTrue(self.run_cli("validate")["valid"])
 
+    def test_competing_claim_same_id_and_manual_resume(self):
+        item = self.create("one")
+        other = self.create("two", [item["id"]])
+
+        def claim(owner):
+            proc = subprocess.run([sys.executable, str(Path(sov_task.__file__)), "--state-dir", str(self.root), "claim", item["id"], "--owner", owner], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return owner, json.loads(proc.stdout)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = dict(pool.map(claim, ("alice", "bob")))
+        winners = [name for name, result in outcomes.items() if result.get("state") == "IN PROGRESS"]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(outcomes["bob" if winners[0] == "alice" else "alice"]["status"], "not_ready")
+        self.assertEqual(self.run_cli("claim-next"), {"status": "no_ready_tasks"})
+        (self.root / "tasks" / item["name"] / "task.md").write_text("resume at checks", encoding="utf-8")
+        self.run_cli("release", item["id"], "--owner", winners[0])
+        self.assertEqual(self.run_cli("show", item["id"])["state"], "READY")
+        self.assertEqual(self.run_cli("claim", item["id"], "--owner", "next-agent")["state"], "IN PROGRESS")
+        self.assertEqual(self.run_cli("claim-next"), {"status": "no_ready_tasks"})
+        self.run_cli("complete", item["id"], "--owner", "next-agent")
+        self.assertEqual((self.root / "archive" / item["name"] / "task.md").read_text(), "resume at checks")
+        self.assertEqual(self.run_cli("show", other["id"])["state"], "READY")
+        self.assertTrue(self.run_cli("validate")["valid"])
+
     def test_interrupted_transfer_and_recovery(self):
         item = self.create("one")
         self.run_cli("claim", item["id"], "--owner", "alice")
