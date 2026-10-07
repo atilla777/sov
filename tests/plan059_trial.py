@@ -10,7 +10,8 @@ import tempfile
 
 SOURCE = Path(__file__).resolve().parents[1]
 OLD = 'b338a80b3eddd09d91b83e352301a3a83a6d6e84'
-COMMANDS = ('sov', 'sov-feature', 'sov-bug', 'sov-fast', 'sov-decompose', 'sov-retro')
+LEGACY_COMMANDS = ('sov', 'sov-feature', 'sov-bug', 'sov-fast', 'sov-decompose', 'sov-retro')
+COMMANDS = LEGACY_COMMANDS + ('sov-update',)
 
 
 def run(*args, cwd):
@@ -26,11 +27,16 @@ def old_command(name):
 
 
 def install(project, commands, agents):
-    for name in COMMANDS:
+    for name in LEGACY_COMMANDS:
         old = old_command(name)
         installed = commands / f'{name}.md'
         if installed.exists() and installed.read_bytes() != old:
             raise RuntimeError(f'user-edited command: {name}')
+    added = commands / 'sov-update.md'
+    if added.exists() and added.read_bytes() != (
+        SOURCE / 'templates/opencode/commands/sov-update.md'
+    ).read_bytes():
+        raise RuntimeError('user-edited command: sov-update')
     for name in COMMANDS:
         shutil.copy2(SOURCE / 'templates/opencode/commands' / f'{name}.md', commands / f'{name}.md')
     for name in ('sov-standard', 'sov-advanced'):
@@ -77,7 +83,7 @@ def main():
         commands.mkdir(parents=True)
         agents.mkdir(parents=True)
         (project / 'AGENTS.md').write_text('# Проект\n\nПользовательское правило.\n', encoding='utf-8')
-        for name in COMMANDS:
+        for name in LEGACY_COMMANDS:
             (commands / f'{name}.md').write_bytes(old_command(name))
         edited = commands / 'sov.md'
         edited.write_bytes(edited.read_bytes() + b'\nUser change\n')
@@ -89,6 +95,16 @@ def main():
             raise AssertionError('user edit overwritten')
         assert edited.read_bytes().endswith(b'User change\n')
         edited.write_bytes(old_command('sov'))
+        added = commands / 'sov-update.md'
+        added.write_text('User command', encoding='utf-8')
+        try:
+            install(project, commands, agents)
+        except RuntimeError as error:
+            assert 'user-edited command: sov-update' in str(error)
+        else:
+            raise AssertionError('user command overwritten')
+        assert added.read_text(encoding='utf-8') == 'User command'
+        added.unlink()
         install(project, commands, agents)
         assert 'Пользовательское правило.' in (project / 'AGENTS.md').read_text(encoding='utf-8')
         for name in COMMANDS:
@@ -106,6 +122,7 @@ def main():
             for name in COMMANDS:
                 assert name in settings['command'], name
                 assert 'sov-orchestrator' in settings['command'][name]['template']
+            assert 'sov-update' in settings['command']['sov-update']['template']
             for name in ('sov-standard', 'sov-advanced'):
                 assert json.loads(run('opencode', 'debug', 'agent', name, cwd=location))['mode'] == 'subagent'
         fresh = Path(tmp) / 'fresh'

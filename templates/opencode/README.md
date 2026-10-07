@@ -1,6 +1,6 @@
 # Шаблоны OpenCode для целевого проекта
 
-Шесть [команд](commands/) `/sov`, `/sov-feature`, `/sov-bug`, `/sov-fast`, `/sov-decompose` и `/sov-retro` передают поручение основному агенту со [скилом оркестратора](../../skills/sov-orchestrator/SKILL.md). Команды не меняют текущий режим `build`/`plan` или модель основного агента. Это исходники для установки, а не активные команды самого репозитория SOV.
+Семь [команд](commands/) `/sov`, `/sov-feature`, `/sov-bug`, `/sov-fast`, `/sov-decompose`, `/sov-retro` и `/sov-update` передают поручение основному агенту со [скилом оркестратора](../../skills/sov-orchestrator/SKILL.md). `/sov-update` явно просит ручное обновление через [скил `sov-update`](../../skills/sov-update/SKILL.md). Команды не меняют текущий режим `build`/`plan` или модель основного агента. Это исходники для установки, а не активные команды самого репозитория SOV.
 
 Два [проектных субагента](agents/) `sov-standard` и `sov-advanced` выполняют шаги с моделями по умолчанию `openai/gpt-6-luna` и `openai/gpt-6-sol`; поле `model` настраивается в копиях целевого проекта. `plan` не разрешает изменяющую работу через субагента.
 
@@ -15,6 +15,7 @@
 /sov-fast Исправь небольшую ошибку установщика hook.
 /sov-decompose Разбей опубликованную docs/specs/saves.md на задачи реализации.
 /sov-retro Проанализируй задачу 0042 и предложи улучшения.
+/sov-update Обнови SOV в этом проекте до опубликованного выпуска.
 ```
 
 Для ретро Langfuse необязателен; для явно связанных трасс отдельно установи официальный [скил Langfuse](https://langfuse.com/docs/api-and-data-platform/features/agent-skill) и его [CLI](https://langfuse.com/docs/api-and-data-platform/features/cli), а ключи настрой в окружении.
