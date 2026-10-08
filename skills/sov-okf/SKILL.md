@@ -1,6 +1,6 @@
 ---
 name: sov-okf
-description: Use when formatting SOV target-project specifications, ADRs, rules or their indexes according to the project's explicitly adopted Open Knowledge Format profile.
+description: Use ONLY within a /sov* command for formatting SOV task specifications, ADRs, rules and indexes according to the target project's adopted OKF profile.
 ---
 
 # Оформление документов целевого проекта

@@ -1,6 +1,6 @@
 ---
 name: sov-plan
-description: Use for technical planning of an SOV development or bug-fix task from approved requirements and, for a fix, a usable research result; not for diagnosing bugs or implementing changes.
+description: Use ONLY for technical planning delegated by the /sov* orchestrator of an SOV development or bug-fix task; not for ordinary project planning.
 ---
 
 # Техническое планирование задачи

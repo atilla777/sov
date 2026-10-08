@@ -1,6 +1,6 @@
 ---
 name: sov-implement
-description: Use when implementing an SOV development or bug-fix task from approved requirements and a usable technical plan, including tests, required checks and affected documentation; not for diagnosing the bug or changing product requirements.
+description: Use ONLY for implementation delegated by the /sov* orchestrator of an SOV development or bug-fix task; not for ordinary project edits.
 ---
 
 # Реализация задачи

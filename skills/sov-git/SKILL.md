@@ -1,6 +1,6 @@
 ---
 name: sov-git
-description: Use for SOV task Git branches, worktrees, direct publication to main, resumption and safe cleanup in a target project.
+description: Use ONLY within a /sov* command for SOV task Git branches, worktrees, publication, resumption and cleanup in a target project.
 ---
 
 # Git и публикация задачи SOV

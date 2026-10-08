@@ -1,6 +1,6 @@
 ---
 name: sov-research
-description: Use for SOV bug investigation to reproduce the failure, distinguish evidence from hypotheses, establish a cause when supported and propose a remedy; also for an independent targeted recheck of a research conclusion. Not for technical planning or implementing a fix.
+description: Use ONLY within a /sov* command for SOV bug investigation or independent recheck of research conclusions; not for ordinary project debugging.
 ---
 
 # Исследование ошибки

@@ -1,6 +1,6 @@
 # Шаблоны OpenCode для целевого проекта
 
-Семь [команд](commands/) `/sov`, `/sov-feature`, `/sov-bug`, `/sov-fast`, `/sov-decompose`, `/sov-retro` и `/sov-update` передают поручение основному агенту со [скилом оркестратора](../../skills/sov-orchestrator/SKILL.md). `/sov-update` явно просит ручное обновление через [скил `sov-update`](../../skills/sov-update/SKILL.md). Команды не меняют текущий режим `build`/`plan` или модель основного агента. Это исходники для установки, а не активные команды самого репозитория SOV.
+Семь [команд](commands/) `/sov`, `/sov-feature`, `/sov-bug`, `/sov-fast`, `/sov-decompose`, `/sov-retro` и `/sov-update` — единственные входы SOV в OpenCode: они передают поручение основному агенту со [скилом оркестратора](../../skills/sov-orchestrator/SKILL.md). Обычная просьба, даже с фразой «используй SOV», не загружает workflow SOV. `/sov-update` явно просит ручное обновление через [скил `sov-update`](../../skills/sov-update/SKILL.md). Команды не меняют текущий режим `build`/`plan` или модель основного агента. Это исходники для установки, а не активные команды самого репозитория SOV.
 
 Два [проектных субагента](agents/) `sov-standard` и `sov-advanced` выполняют шаги с моделями по умолчанию `openai/gpt-6-luna` и `openai/gpt-6-sol`; поле `model` настраивается в копиях целевого проекта. `plan` не разрешает изменяющую работу через субагента.
 

@@ -1,6 +1,6 @@
 ---
 name: sov-retro
-description: Use only on an explicit SOV retrospective request for a task, named sessions or a set of tasks; analyze task evidence and optionally explicitly linked Langfuse traces, then recommend verifiable improvements without changing files.
+description: Use ONLY within a /sov* command that requests an SOV retrospective; analyze task evidence and optionally explicitly linked Langfuse traces without changing files.
 ---
 
 # Ретроспектива сессий SOV

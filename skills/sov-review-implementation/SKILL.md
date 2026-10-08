@@ -1,6 +1,6 @@
 ---
 name: sov-review-implementation
-description: Use for independent review of an SOV development or bug-fix implementation before publication; examine code, tests, check results and affected documentation against approved requirements and task boundaries, without re-reviewing the technical plan.
+description: Use ONLY for independent review delegated by the /sov* orchestrator of an SOV development or bug-fix implementation before publication.
 ---
 
 # Независимое ревью реализации

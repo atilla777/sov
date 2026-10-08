@@ -1,6 +1,6 @@
 ---
 name: sov-review-spec
-description: Use for independent SOV review of a drafted product specification and optional ADR before publishing requirements; run as a subagent separate from the author.
+description: Use ONLY for independent SOV review delegated by the /sov* orchestrator of a drafted product specification and optional ADR.
 ---
 
 # Независимое ревью продуктовых требований

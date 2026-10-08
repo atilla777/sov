@@ -1,6 +1,6 @@
 ---
 name: sov-spec
-description: Use for SOV feature discussion and new or changed product requirements with optional ADRs; not for decomposition, technical planning or implementation.
+description: Use ONLY within a /sov* command for SOV feature discussion and new or changed product requirements with optional ADRs.
 ---
 
 # Обсуждение фичи и подготовка требований

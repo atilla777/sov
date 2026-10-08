@@ -1,6 +1,6 @@
 ---
 name: sov-decompose
-description: Use when explicitly asked to break an already published SOV product specification into implementation tasks; check coverage and dependencies, then create cards through sov-tasks.
+description: Use ONLY within a /sov* command that requests decomposition of an already published SOV product specification into implementation tasks.
 ---
 
 # Декомпозиция опубликованных требований
